@@ -40,7 +40,7 @@ pred sendPacket[s, s': State] {
 		
 }
 
-pred receivePacket[s, s': State] {s.currentReceiver
+pred receivePacket[s, s': State] {
 //	s.currentSender = s'.currentSender and
 //	s.currentReceiver in Receiver - s'.currentReceiver and
 	one p: Packet | p = s.packetSent and
