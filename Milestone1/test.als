@@ -24,13 +24,30 @@ pred SendPacket[s,s':State]{
 				s.receivers = s'.receivers))))
 }
 
+pred ReceivePacket[s,s':State]{
+	(one sender:Sender | 
+		(one p: Packet|
+			(one r: Receiver|
+				((s.buffer[sender] = p) and
+				(sender.receiver = r) and
+				(let sendPair = (sender->p) |
+					(let receivePair = (r -> p)|
+						(sendPair in s.buffer and
+						sendPair !in s'.buffer and
+						receivePair in s'.receivers and
+						receivePair !in s.receivers and
+						s'.receivers = s.receivers - receivePair and
+						s.senders = s'.senders)))))))
+}
+
 pred State.Init[]{
 	Receiver.(this.receivers) = none and
 	Sender.(this.buffer) = none
 }
 
 pred Transition[s, s':State]{
-	SendPacket[s, s']// or ReceivePacket[s, s']
+	SendPacket[s, s'] or 
+	ReceivePacket[s, s']
 }
 
 fact{
