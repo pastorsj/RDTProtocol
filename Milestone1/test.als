@@ -21,12 +21,10 @@ pred SendPacket[s,s':State]{
 				sendPair in s'.buffer and
 				sendPair !in s.buffer and
 				s'.senders = s.senders - sendPair and
-				s.receivers = s'.receivers))))
+				s.receivers = s'.receivers and
+				s.buffer = s'.buffer - sendPair))))
 }
 
-fact{
-	all s:Sender| lone State.buffer[s]
-}
 
 pred ReceivePacket[s,s':State]{
 	(one sender:Sender | 
@@ -40,13 +38,16 @@ pred ReceivePacket[s,s':State]{
 						sendPair !in s'.buffer and
 						receivePair in s'.receivers and
 						receivePair !in s.receivers and
-						s'.receivers = s.receivers - receivePair and
+						s'.receivers - receivePair = s.receivers and
 						s.senders = s'.senders)))))))
 }
 
+pred State.Done[]{
+	#this.senders = 0 and #this.buffer = 0
+}
+
 pred State.Init[]{
-	Receiver.(this.receivers) = none and
-	Sender.(this.buffer) = none
+	#this.receivers = 0 and #this.buffer = 0
 }
 
 pred Transition[s, s':State]{
@@ -65,8 +66,11 @@ fact{
 		or (p in Sender.(st.buffer) and p in Receiver.(st.receivers))) 
 }
 
-fact{
-	(no s:Sender | some s2:Sender - s | s.receiver = s2.receiver)
+assert AlwaysWorks{
+	(first.Init[]  and
+		all s:State - last |
+			let s' = s.next |
+				Transition[s, s'] )=> last.Done[]
 }
 
 pred Trace[]{
@@ -77,4 +81,6 @@ pred Trace[]{
 }
 
 pred show{}
-run Trace for 6
+check AlwaysWorks for 2 but exactly 5 State
+run Trace for 2 but exactly 5 State
+run show for 2 but exactly 5 State
