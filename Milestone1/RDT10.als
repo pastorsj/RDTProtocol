@@ -79,6 +79,10 @@ pred Transition[s, s':State]{
 	sendPacket[s, s']// or receivePacket[s, s']
 }
 
+pred State.Init[]{
+	all r:
+}
+
 pred show{}
 
 run show for 4
