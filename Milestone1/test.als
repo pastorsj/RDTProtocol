@@ -24,6 +24,10 @@ pred SendPacket[s,s':State]{
 				s.receivers = s'.receivers))))
 }
 
+fact{
+	all s:Sender| lone State.buffer[s]
+}
+
 pred ReceivePacket[s,s':State]{
 	(one sender:Sender | 
 		(one p: Packet|
