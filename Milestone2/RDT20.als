@@ -1,9 +1,15 @@
-module Milestone1/RDT20
+module Milestone2/RDT20
 
 open util/ordering[State]
 
 one sig ACK, NAK extends Packet{}
-sig Packet{}
+
+sig Packet{ 
+	checksum : Checksum
+}
+
+sig Checksum{}
+
 sig Receiver{
 	sender: Sender
 }
@@ -59,12 +65,12 @@ pred ReceivePacket[s,s':State]{
 }
 
 pred ReceiveReply[s,s':State]{
-	(one send:Receiver|
+	(one r:Receiver|
 		(one p:Packet|
-			(one r:Sender|
-				(
-
-					))))
+			(one send:Sender|
+				(p = ACK => s'.replies = (s.replies - s.replies[send] )+ (send->p)) and
+				(p = NAK => s'.buffer = (send-> s.lastPacket[send])) and
+				#s'.replyBuffer = 0)))
 }
 
 pred Packet.ErrorCheck{
