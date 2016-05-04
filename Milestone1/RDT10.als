@@ -58,7 +58,8 @@ pred Transition[s, s':State]{
 
 fact{
 	(no p:Packet | (some r:Receiver | (some r2:Receiver - r | (r->p) in State.receivers and (r2->p) in State.receivers))
-		or (some s:Sender| (some s2:Sender -s | (s->p) in State.senders and (s2->p) in State.senders)))
+		or (some s:Sender| (some s2:Sender -s | ((s->p) in State.senders and (s2->p) in State.senders)
+			or ((s->p) in State.buffer and (s2->p) in State.buffer))))
 }
 
 fact{
