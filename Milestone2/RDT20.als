@@ -11,7 +11,7 @@ sig Packet{
 sig Checksum{}
 
 sig Receiver{
-	sender: Sender
+	sender: one Sender
 }
 
 sig Sender{
@@ -32,15 +32,19 @@ sig State{
 pred SendPacket[s,s':State]{
 	(one send:Sender |
 		(s.buffer[send] = none) and
-		(one p:Packet |
+		(one p:(Packet - (ACK + NAK)) |
 			(let sendPair = (send->p) |
-				((((send->NAK) in s.replies) => (p = s.lastPacket[send])) and
+				((((send->NAK) in s.replies) => (sendPair in s.lastPacket)) and
 				(((send->ACK) in s.replies) => (sendPair in s.senders)) and
 				sendPair !in s'.senders and
 				sendPair in s'.buffer and
+				sendPair in s'.lastPacket and
 				#s.buffer = 0 and
 				s'.senders = s.senders - sendPair and
 				s.receivers = s'.receivers and
+				s'.lastPacket = (s.lastPacket) - (send->s.lastPacket[send]) + sendPair and
+				s.replies = s'.replies and
+				s.replyBuffer = s'.replyBuffer and
 				s.buffer = s'.buffer - sendPair))))
 }
 
@@ -56,21 +60,27 @@ pred ReceivePacket[s,s':State]{
 				(send.receiver = r) and
 				(let sendPair = (send->p) |
 					(let receivePair = (r -> p)|
-						(sendPair in s.buffer and
-						sendPair !in s'.buffer and
+						(s'.buffer = s.buffer - sendPair and
 						receivePair in s'.receivers and
 						receivePair !in s.receivers and
+						s.lastPacket = s'.lastPacket and
 						s'.receivers - receivePair = s.receivers and
+						s.replies = s'.replies and
 						s.senders = s'.senders)))))))
 }
 
 pred ReceiveReply[s,s':State]{
 	(one r:Receiver|
-		(one p:Packet|
+		(one p:(ACK + NAK)|
 			(one send:Sender|
-				(p = ACK => s'.replies = (s.replies - s.replies[send] )+ (send->p)) and
-				(p = NAK => s'.buffer = (send-> s.lastPacket[send])) and
-				#s'.replyBuffer = 0)))
+				send = r.sender and
+				s'.replies = (s.replies - (send->s.replies[send]))+ (send->p) and
+				s.lastPacket = s'.lastPacket and
+				s.receivers = s'.receivers and
+				s.buffer = s'.buffer and
+				s.senders = s'.senders and
+				(r->p) in s.replyBuffer and
+				s'.replyBuffer = s.replyBuffer - (r->p))))
 }
 
 pred Packet.ErrorCheck{
@@ -88,7 +98,7 @@ pred State.Init[]{
 
 pred Transition[s, s':State]{
 	SendPacket[s, s'] or 
-	ReceivePacket[s, s']
+	ReceivePacket[s, s'] or ReceiveReply[s, s']
 }
 
 fact{
@@ -98,7 +108,8 @@ fact{
 fact{
 	(no p:Packet | (some r:Receiver | (some r2:Receiver - r | (r->p) in State.receivers and (r2->p) in State.receivers))
 		or (some s:Sender| (some s2:Sender -s | ((s->p) in State.senders and (s2->p) in State.senders)
-			or ((s->p) in State.buffer and (s2->p) in State.buffer))))
+			or ((s->p) in State.buffer and (s2->p) in State.buffer)
+			or ((s->p) in State.lastPacket and (s2->p) in State.lastPacket))))
 }
 
 fact{
@@ -123,5 +134,5 @@ pred Trace[]{
 
 pred show{}
 check AlwaysWorks for 2 but exactly 5 State
-run Trace for 2 but exactly 5 State, exactly 4 Packet
+run Trace for 2 but exactly 7 State, exactly 4 Packet
 run show for 2 but exactly 5 State
