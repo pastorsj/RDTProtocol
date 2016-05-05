@@ -4,11 +4,16 @@ open util/ordering[State]
 
 one sig ACK, NAK extends Packet{}
 
+sig Checksum{}
+
+one sig CorruptChecksum extends Checksum{}
+
+sig Data{}
+
 sig Packet{ 
+	data: Data,
 	checksum : Checksum
 }
-
-sig Checksum{}
 
 sig Receiver{
 	sender: one Sender
@@ -36,6 +41,7 @@ pred SendPacket[s,s':State]{
 			(let sendPair = (send->p) |
 				((((send->NAK) in s.replies) => (sendPair in s.lastPacket)) and
 				(((send->ACK) in s.replies) => (sendPair in s.senders)) and
+				#s.replyBuffer = 0 and
 				sendPair !in s'.senders and
 				sendPair in s'.buffer and
 				sendPair in s'.lastPacket and
@@ -61,7 +67,7 @@ pred ReceivePacket[s,s':State]{
 				(let sendPair = (send->p) |
 					(let receivePair = (r -> p)|
 						(s'.buffer = s.buffer - sendPair and
-						receivePair in s'.receivers and
+						(p.ErrorCheck[] => receivePair in s'.receivers) and
 						receivePair !in s.receivers and
 						s.lastPacket = s'.lastPacket and
 						s'.receivers - receivePair = s.receivers and
@@ -84,7 +90,7 @@ pred ReceiveReply[s,s':State]{
 }
 
 pred Packet.ErrorCheck{
-	iden = ~iden
+	this.checksum != CorruptChecksum
 }
 
 pred State.Done[]{
@@ -103,6 +109,10 @@ pred Transition[s, s':State]{
 
 fact{
 	receiver = ~sender
+}
+
+fact{
+	some p:Sender.(first.senders) | p.checksum = CorruptChecksum
 }
 
 fact{
@@ -134,5 +144,5 @@ pred Trace[]{
 
 pred show{}
 check AlwaysWorks for 2 but exactly 5 State
-run Trace for 2 but exactly 7 State, exactly 4 Packet
+run Trace for 2 but exactly 9 State, exactly 4 Packet
 run show for 2 but exactly 5 State
