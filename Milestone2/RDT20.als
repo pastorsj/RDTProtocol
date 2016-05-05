@@ -2,7 +2,7 @@ module Milestone2/RDT20
 
 open util/ordering[State]
 
-one sig ACK, NAK extends Packet{}
+one sig ACK, NAK extends Data{}
 
 sig Checksum{}
 
@@ -24,12 +24,13 @@ sig Sender{
 }
 
 sig State{
-	senders: (Sender -> Packet),
-	receivers: (Receiver -> Packet),
+	sent: set Packet,
+	senders: (Sender -> Data),
+	receivers: (Receiver -> Data),
 	buffer: (Sender -> Packet),
-	lastPacket: (Sender -> Packet),
+	lastSent: (Sender -> Data),
 	replyBuffer: (Receiver -> Packet),
-	replies: (Sender -> Packet)
+	replies: (Sender -> Data)
 }
 
 
@@ -37,56 +38,70 @@ sig State{
 pred SendPacket[s,s':State]{
 	(one send:Sender |
 		(s.buffer[send] = none) and
-		(one p:(Packet - (ACK + NAK)) |
-			(let sendPair = (send->p) |
-				((((send->NAK) in s.replies) => (sendPair in s.lastPacket)) and
-				(((send->ACK) in s.replies) => (sendPair in s.senders)) and
-				#s.replyBuffer = 0 and
-				sendPair !in s'.senders and
-				sendPair in s'.buffer and
-				sendPair in s'.lastPacket and
-				#s.buffer = 0 and
-				s'.senders = s.senders - sendPair and
-				s.receivers = s'.receivers and
-				s'.lastPacket = (s.lastPacket) - (send->s.lastPacket[send]) + sendPair and
-				s.replies = s'.replies and
-				s.replyBuffer = s'.replyBuffer and
-				s.buffer = s'.buffer - sendPair))))
+		(one p:(Packet - s.sent) |
+			p in s'.sent and
+			(one d:(Data - (ACK + NAK)) |
+				d = p.data and
+				(let sendPair = (send->p) |
+					(let sendData = (send -> d) |
+						((((send->NAK) in s.replies) => (sendData in s.lastSent)) and
+						(((send->ACK) in s.replies) => (sendData in s.senders)) and
+						#s.replyBuffer = 0 and
+						sendData !in s'.senders and
+						sendPair in s'.buffer and
+						sendData in s'.lastSent and
+						#s.buffer = 0 and
+						s'.senders = s.senders - sendData and
+						s.receivers = s'.receivers and
+						s'.lastSent = (s.lastSent) - (send->s.lastSent[send]) + sendData and
+						s.replies = s'.replies and
+						s.replyBuffer = s'.replyBuffer and
+						s.sent = s'.sent - p and
+						s.buffer = s'.buffer - sendPair))))))
 }
 
 pred ReceivePacket[s,s':State]{
 	(one send:Sender | 
-		(one p: Packet|
-			(one r: Receiver|
-				(#s.replyBuffer = 0) and
-				(p.ErrorCheck[] => s'.replyBuffer = (r->ACK)) and
-				(!p.ErrorCheck[] => s'.replyBuffer = (r->NAK)) and
-				(#s'.buffer = 0) and
-				((s.buffer[send] = p) and
-				(send.receiver = r) and
-				(let sendPair = (send->p) |
-					(let receivePair = (r -> p)|
-						(s'.buffer = s.buffer - sendPair and
-						(p.ErrorCheck[] => receivePair in s'.receivers) and
-						receivePair !in s.receivers and
-						s.lastPacket = s'.lastPacket and
-						s'.receivers - receivePair = s.receivers and
-						s.replies = s'.replies and
-						s.senders = s'.senders)))))))
+		(one p:Packet |
+			(one d:(Data - (ACK + NAK)) |
+				(one r: Receiver|
+				d = p.data and
+					(let sendPair = (send->p) |
+						(let receiveData = (r -> d) |
+							((#s.replyBuffer = 0) and (#s'.replyBuffer = 1) and
+							(p.ErrorCheck[] => (r.(s'.replyBuffer)).data = ACK) and
+							(!p.ErrorCheck[] => (r.(s'.replyBuffer)).data = NAK) and
+							(#s'.buffer = 0) and
+							((s.buffer[send] = p) and
+							(send.receiver = r) and
+							s'.buffer = s.buffer - sendPair and
+							(p.ErrorCheck[] => receiveData in s'.receivers) and
+							(!p.ErrorCheck[] => receiveData !in s'.receivers) and
+							receiveData !in s.receivers and
+							s.lastSent = s'.lastSent and
+							s'.receivers - receiveData = s.receivers and
+							s.replies = s'.replies and
+							s.sent = s'.sent and
+							s.senders = s'.senders))))))))
 }
 
 pred ReceiveReply[s,s':State]{
 	(one r:Receiver|
-		(one p:(ACK + NAK)|
-			(one send:Sender|
-				send = r.sender and
-				s'.replies = (s.replies - (send->s.replies[send]))+ (send->p) and
-				s.lastPacket = s'.lastPacket and
-				s.receivers = s'.receivers and
-				s.buffer = s'.buffer and
-				s.senders = s'.senders and
-				(r->p) in s.replyBuffer and
-				s'.replyBuffer = s.replyBuffer - (r->p))))
+		(one d:(ACK + NAK)|
+			(one p:(Packet - s.sent) |
+				p.data = d and
+				p in s'.sent and
+				(one send:Sender|
+					send = r.sender and
+					((p.ErrorCheck[] => s'.replies = (s.replies - (send->s.replies[send]))+ (send->d))) and
+					(!p.ErrorCheck[] => (s'.replies = (s.replies - (send->s.replies[send])) + (send->((ACK + NAK) - d)))) and
+					s.lastSent = s'.lastSent and
+					s.receivers = s'.receivers and
+					s.buffer = s'.buffer and
+					s.senders = s'.senders and
+					s.sent = s'.sent - p and
+					(r->p) in s.replyBuffer and
+					s'.replyBuffer = s.replyBuffer - (r->p)))))
 }
 
 pred Packet.ErrorCheck{
@@ -94,12 +109,13 @@ pred Packet.ErrorCheck{
 }
 
 pred State.Done[]{
-	#this.senders = 0 and #this.buffer = 0 and #this.replyBuffer = 0
+//	#this.senders = 0 and #this.buffer = 0 and #this.replyBuffer = 0
+	all d:(Data - (ACK + NAK)) | d in Receiver.(this.receivers)
 }
 
 pred State.Init[]{
-	#this.receivers = 0 and #this.buffer = 0  and #this.replyBuffer = 0 and #this.lastPacket = 0 and this.replies = {Sender->ACK}
-	and all s:Sender | (s->ACK) !in this.senders and (s->NAK) !in this.senders
+	#this.receivers = 0 and #this.buffer = 0  and #this.replyBuffer = 0 and #this.lastSent = 0 and this.replies = {Sender->ACK}
+	and all s:Sender | (s->ACK) !in this.senders and (s->NAK) !in this.senders and this.sent = none
 }
 
 pred Transition[s, s':State]{
@@ -112,20 +128,24 @@ fact{
 }
 
 fact{
-	some p:Sender.(first.senders) | p.checksum = CorruptChecksum
+//	all d:Data | some p:Packet | p.data = d and p.checksum != CorruptChecksum
 }
 
 fact{
-	(no p:Packet | (some r:Receiver | (some r2:Receiver - r | (r->p) in State.receivers and (r2->p) in State.receivers))
-		or (some s:Sender| (some s2:Sender -s | ((s->p) in State.senders and (s2->p) in State.senders)
-			or ((s->p) in State.buffer and (s2->p) in State.buffer)
-			or ((s->p) in State.lastPacket and (s2->p) in State.lastPacket))))
+	some p:Packet | p.checksum = CorruptChecksum
 }
 
 fact{
-	(all st:State | no p:Packet | (p in Sender.(st.senders) and p in Receiver.(st.receivers))
-		or (p in Sender.(st.senders) and p in Sender.(st.buffer))
-		or (p in Sender.(st.buffer) and p in Receiver.(st.receivers))) 
+	(no d:Data | (some r:Receiver | (some r2:Receiver - r | (r->d) in State.receivers and (r2->d) in State.receivers))
+		or (some s:Sender| (some s2:Sender -s | ((s->d) in State.senders and (s2->d) in State.senders)
+			or ((s->d) in State.lastSent and (s2->d) in State.lastSent)
+			or (some p:Packet | p.data = d and ((s->p) in State.buffer and (s2->p) in State.buffer)))))
+}
+
+fact{
+	(all st:State | no d:Data | (d in Sender.(st.senders) and d in Receiver.(st.receivers))
+		or (d in Sender.(st.senders) and d in (Sender.(st.buffer)).data)
+		or (d in (Sender.(st.buffer)).data and d in Receiver.(st.receivers))) 
 }
 
 assert AlwaysWorks{
@@ -139,10 +159,10 @@ pred Trace[]{
 	first.Init[] and
 		all s:State - last |
 			let s' = s.next |
-				Transition[s, s']
+				Transition[s, s'] and last.Done[]
 }
 
 pred show{}
-check AlwaysWorks for 2 but exactly 5 State
-run Trace for 2 but exactly 9 State, exactly 4 Packet
+check AlwaysWorks for 1 but exactly 10 State, exactly 6 Packet, exactly 3 Data, exactly 2 Checksum
+run Trace for 2 but exactly 9 State, exactly 5 Packet, exactly 4 Data
 run show for 2 but exactly 5 State
