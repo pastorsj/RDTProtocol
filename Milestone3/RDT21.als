@@ -47,8 +47,20 @@ one sig SendState, ReceiveState, ReceiveReplyState, DeadState extends StateType{
 
 
 
-pred SendPacket[s,s':State]{
+pred CanSendPacket[s:State]{
 	s.type = SendState and
+	(one send:Sender |
+		(one d:(Data - (ACK + NAK)) |			
+			(some p:(Packet - s.sent) | d = p.data) and
+			(let sendData = (send -> d) |
+				(((send->NAK) in s.replies)=> (sendData in s.lastSent)) and
+				(((send->ACK) in s.replies) => (sendData in s.senders)) and
+				#s.replyBuffer = 0 and
+				#s.buffer = 0)))
+}
+
+pred SendPacket[s,s':State]{
+	CanSendPacket[s] and
 	(one send:Sender |
 		(s.buffer[send] = none) and
 		(one p:(Packet - s.sent) |
@@ -72,12 +84,26 @@ pred SendPacket[s,s':State]{
 						s.replyBuffer = s'.replyBuffer and
 						s.lastReceivedNum = s'.lastReceivedNum and
 						s.sent = s'.sent - p and
-						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum)))  and
+						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum)))  and// s'.buffer = s.buffer))))))
 						s'.buffer = s.buffer + sendPair))))))
 }
 
-pred ReceivePacket[s,s':State]{
+pred CanReceivePacket[s:State]{
 	s.type = ReceiveState and
+	(one send:Sender | 
+		(one p:Packet |
+			(one d:(Data - (ACK + NAK)) |
+				(one r: Receiver|
+				d = p.data and
+				(let receiveData = (r -> d) |
+					(#s.replyBuffer = 0) and
+					(s.buffer[send] = p) and
+					(send.receiver = r) and
+					receiveData !in s.receivers)))))
+}
+
+pred ReceivePacket[s,s':State]{
+	CanReceivePacket[s] and
 	(one send:Sender | 
 		(one p:Packet |
 			(one d:(Data - (ACK + NAK)) |
@@ -88,6 +114,7 @@ pred ReceivePacket[s,s':State]{
 							((#s.replyBuffer = 0) and (#s'.replyBuffer = 1) and
 							(p.ErrorCheck[] => (r.(s'.replyBuffer)).data = ACK) and
 							(!p.ErrorCheck[] => (r.(s'.replyBuffer)).data = NAK) and
+							(r.(s'.replyBuffer)) !in s.sent) and
 							(#s'.buffer = 0) and
 							(s.buffer[send] = p) and
 							(send.receiver = r) and
@@ -101,11 +128,20 @@ pred ReceivePacket[s,s':State]{
 							s.replies = s'.replies and
 							s.sent = s'.sent and
 							s.lastSentNum = s'.lastSentNum and
-							s.senders = s'.senders)))))))
+							s.senders = s'.senders))))))
+}
+
+pred CanReceiveReply[s:State]{
+	s.type = ReceiveReplyState and
+	(one r:Receiver|
+		(one d:(ACK + NAK)|
+			(one p:(Packet - s.sent) |
+				p.data = d and
+				(r->p) in s.replyBuffer)))
 }
 
 pred ReceiveReply[s,s':State]{
-	s.type = ReceiveReplyState and
+	CanReceiveReply[s] and
 	(one r:Receiver|
 		(one d:(ACK + NAK)|
 			(one p:(Packet - s.sent) |
@@ -127,7 +163,6 @@ pred ReceiveReply[s,s':State]{
 }
 
 pred StayDead[s,s':State]{
-	s.type = DeadState and
 	s'.type = DeadState and
 	s.sent = s'.sent and
 	s.senders = s'.senders and
@@ -163,12 +198,14 @@ pred Transition[s, s':State]{
 }
 
 pred TypeTransition[s, s':State]{
-	(Transition[s, s'] =>
-	(s.type in ReceiveReplyState => s'.type in SendState) and
-	(s.type in ReceiveState => s'.type in ReceiveReplyState) and
-	(s.type in SendState => s'.type in ReceiveState) and
-	(s.type in DeadState => s'.type in DeadState)) and
-	(!Transition[s, s'] => (s'.type in DeadState))
+	(((s.type in ReceiveReplyState and CanReceiveReply[s]) => s'.type in SendState) and
+	((s.type in ReceiveState and CanReceivePacket[s]) => s'.type in ReceiveReplyState) and
+	((s.type in SendState and CanSendPacket[s]) => s'.type in ReceiveState) and
+	((s.type in DeadState or
+		(s.type = SendState and !CanSendPacket[s]) or
+		(s.type = ReceiveState and !CanReceivePacket[s]) or	
+		(s.type = ReceiveReplyState and !CanReceiveReply[s]))
+		=> s'.type in DeadState))
 }
 
 fact{
@@ -198,21 +235,21 @@ fact{
 
 assert AlwaysWorks{
 	(first.Init[] and
-		(all s:State - last |
+		all s:State - last |
 			let s' = s.next |
-				TypeTransition[s, s'])) =>
+				TypeTransition[s, s'] and Transition[s, s']) =>
 					last.Done[]
 }
 
 pred Trace[]{
-	first.Init[] and
+	(first.Init[] and
 		all s:State - last |
 			let s' = s.next |
-				TypeTransition[s, s'] and last.Done[]
+				TypeTransition[s, s'] and Transition[s, s']) and last.Done[]
 }
 
 pred show{}
 check AlwaysWorks for 1 but exactly 10 State, exactly 6 Packet, exactly 3 Data, exactly 2 Checksum
-run Trace for 2 but exactly 9 State, exactly 5 Packet, exactly 4 Data
-run show for 2 but exactly 5 State
+run Trace for 1 but exactly 10 State, exactly 6 Packet, exactly 3 Data, exactly 2 Checksum, exactly 4 StateType
+run show for 1 but exactly 10 State, exactly 6 Packet, exactly 3 Data, exactly 2 Checksum, exactly 4 StateType
 run Init for 1 but exactly 10 State, exactly 6 Packet, exactly 3 Data, exactly 2 Checksum
