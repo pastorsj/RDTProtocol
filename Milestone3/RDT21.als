@@ -74,7 +74,6 @@ pred SendPacket[s,s':State]{
 						(((send->ACK) in s.replies) => (sendData in s.senders)) and
 						#s.replyBuffer = 0 and
 						sendData !in s'.senders and
-						sendPair in s'.buffer and
 						sendData in s'.lastSent and
 						#s.buffer = 0 and
 						s'.senders = s.senders - sendData and
@@ -84,8 +83,9 @@ pred SendPacket[s,s':State]{
 						s.replyBuffer = s'.replyBuffer and
 						s.lastReceivedNum = s'.lastReceivedNum and
 						s.sent = s'.sent - p and
-						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum)))  and// s'.buffer = s.buffer))))))
-						s'.buffer = s.buffer + sendPair))))))
+						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum)))  and
+						(p.ErrorCheck[] => (s'.buffer = s.buffer or s'.buffer = s.buffer + sendPair)) and
+						(!p.ErrorCheck[] => (s'.buffer = s.buffer + sendPair))))))))
 }
 
 pred CanReceivePacket[s:State]{
@@ -111,10 +111,13 @@ pred ReceivePacket[s,s':State]{
 				d = p.data and
 					(let sendPair = (send->p) |
 						(let receiveData = (r -> d) |
-							((#s.replyBuffer = 0) and (#s'.replyBuffer = 1) and
-							(p.ErrorCheck[] => (r.(s'.replyBuffer)).data = ACK) and
-							(!p.ErrorCheck[] => (r.(s'.replyBuffer)).data = NAK) and
-							(r.(s'.replyBuffer)) !in s.sent) and
+							((one rep:Packet |
+								(p.ErrorCheck[] => rep.data = ACK) and
+								(!p.ErrorCheck[] => rep.data = NAK) and
+								(rep !in s.sent) and
+								(rep.ErrorCheck[] => (s'.replyBuffer = s.replyBuffer or s'.replyBuffer = s.replyBuffer + (r->rep))) and
+								(!rep.ErrorCheck[] => (s'.replyBuffer = s.replyBuffer + (r->rep)))) and
+							(#s.replyBuffer = 0) and
 							(#s'.buffer = 0) and
 							(s.buffer[send] = p) and
 							(send.receiver = r) and
@@ -128,7 +131,7 @@ pred ReceivePacket[s,s':State]{
 							s.replies = s'.replies and
 							s.sent = s'.sent and
 							s.lastSentNum = s'.lastSentNum and
-							s.senders = s'.senders))))))
+							s.senders = s'.senders)))))))
 }
 
 pred CanReceiveReply[s:State]{
