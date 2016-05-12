@@ -29,6 +29,7 @@ sig Sender{
 }
 
 sig State{
+	type: one StateType,
 	sent: set Packet,
 	senders: (Sender -> Data),
 	receivers: (Receiver -> Data),
@@ -40,9 +41,14 @@ sig State{
 	replies: (Sender -> Data)
 }
 
+abstract sig StateType{}
+
+one sig SendState, ReceiveState, ReceiveReplyState, DeadState extends StateType{}
+
 
 
 pred SendPacket[s,s':State]{
+	s.type = SendState and
 	(one send:Sender |
 		(s.buffer[send] = none) and
 		(one p:(Packet - s.sent) |
@@ -66,11 +72,12 @@ pred SendPacket[s,s':State]{
 						s.replyBuffer = s'.replyBuffer and
 						s.lastReceivedNum = s'.lastReceivedNum and
 						s.sent = s'.sent - p and
-						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum))) and
+						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum)))  and
 						s'.buffer = s.buffer + sendPair))))))
 }
 
 pred ReceivePacket[s,s':State]{
+	s.type = ReceiveState and
 	(one send:Sender | 
 		(one p:Packet |
 			(one d:(Data - (ACK + NAK)) |
@@ -82,7 +89,7 @@ pred ReceivePacket[s,s':State]{
 							(p.ErrorCheck[] => (r.(s'.replyBuffer)).data = ACK) and
 							(!p.ErrorCheck[] => (r.(s'.replyBuffer)).data = NAK) and
 							(#s'.buffer = 0) and
-							((s.buffer[send] = p) and
+							(s.buffer[send] = p) and
 							(send.receiver = r) and
 							s'.lastReceivedNum = (r->p.seqNum) and
 							s'.buffer = s.buffer - sendPair and
@@ -94,10 +101,11 @@ pred ReceivePacket[s,s':State]{
 							s.replies = s'.replies and
 							s.sent = s'.sent and
 							s.lastSentNum = s'.lastSentNum and
-							s.senders = s'.senders))))))))
+							s.senders = s'.senders)))))))
 }
 
 pred ReceiveReply[s,s':State]{
+	s.type = ReceiveReplyState and
 	(one r:Receiver|
 		(one d:(ACK + NAK)|
 			(one p:(Packet - s.sent) |
@@ -118,6 +126,20 @@ pred ReceiveReply[s,s':State]{
 					s'.replyBuffer = s.replyBuffer - (r->p)))))
 }
 
+pred StayDead[s,s':State]{
+	s.type = DeadState and
+	s'.type = DeadState and
+	s.sent = s'.sent and
+	s.senders = s'.senders and
+	s.receivers = s'. receivers and
+	s.buffer = s'.buffer and
+	s.lastSent = s'.lastSent and
+	s.lastSentNum = s'.lastSentNum and
+	s.lastReceivedNum = s'.lastReceivedNum and
+	s.replyBuffer = s'.replyBuffer and
+	s.replies = s'.replies
+}
+
 pred Packet.ErrorCheck{
 	this.checksum != CorruptChecksum
 }
@@ -129,12 +151,24 @@ pred State.Done[]{
 pred State.Init[]{
 	#this.receivers = 0 and #this.buffer = 0  and #this.replyBuffer = 0 and #this.lastSent = 0 and this.replies = {Sender->ACK}
 	and (all s:Sender | (s->ACK) !in this.senders and (s->NAK) !in this.senders and (s->Seq0) in this.lastSentNum)
-	and this.sent = none and #this.lastReceivedNum = 0
+	and this.sent = none and #this.lastReceivedNum = 0 and #this.senders > 0  and this.type = SendState
 }
 
 pred Transition[s, s':State]{
-	SendPacket[s, s'] or 
-	ReceivePacket[s, s'] or ReceiveReply[s, s']
+	(SendPacket[s, s'] or 
+	ReceivePacket[s, s'] or
+	ReceiveReply[s, s'] or
+	StayDead[s, s'])
+	
+}
+
+pred TypeTransition[s, s':State]{
+	(Transition[s, s'] =>
+	(s.type in ReceiveReplyState => s'.type in SendState) and
+	(s.type in ReceiveState => s'.type in ReceiveReplyState) and
+	(s.type in SendState => s'.type in ReceiveState) and
+	(s.type in DeadState => s'.type in DeadState)) and
+	(!Transition[s, s'] => (s'.type in DeadState))
 }
 
 fact{
@@ -163,20 +197,22 @@ fact{
 }
 
 assert AlwaysWorks{
-	(first.Init[]  and
-		all s:State - last |
+	(first.Init[] and
+		(all s:State - last |
 			let s' = s.next |
-				Transition[s, s'] )=> last.Done[]
+				TypeTransition[s, s'])) =>
+					last.Done[]
 }
 
 pred Trace[]{
 	first.Init[] and
 		all s:State - last |
 			let s' = s.next |
-				Transition[s, s'] and last.Done[]
+				TypeTransition[s, s'] and last.Done[]
 }
 
 pred show{}
 check AlwaysWorks for 1 but exactly 10 State, exactly 6 Packet, exactly 3 Data, exactly 2 Checksum
 run Trace for 2 but exactly 9 State, exactly 5 Packet, exactly 4 Data
 run show for 2 but exactly 5 State
+run Init for 1 but exactly 10 State, exactly 6 Packet, exactly 3 Data, exactly 2 Checksum
