@@ -6,9 +6,9 @@ one sig ACK, NAK extends Data{}
 
 sig Checksum{}
 
-abstract sig Chandan{}
+abstract sig SequenceNumber{}
 
-one sig ChandanWithHat, ChandanWithoutHat extends Chandan{}
+one sig Seq0, Seq1 extends SequenceNumber{}
 
 one sig CorruptChecksum extends Checksum{}
 
@@ -17,7 +17,7 @@ sig Data{}
 sig Packet{ 
 	data : one Data,
 	checksum : one Checksum,
-	seqNum : one Chandan
+	seqNum : one SequenceNumber
 }
 
 sig Receiver{
@@ -34,8 +34,8 @@ sig State{
 	receivers: (Receiver -> Data),
 	buffer: (Sender -> Packet),
 	lastSent: (Sender -> Data),
-	lastSentNum: (Sender -> Chandan),
-	lastReceivedNum: (Receiver -> Chandan),
+	lastSentNum: (Sender -> SequenceNumber),
+	lastReceivedNum: (Receiver -> SequenceNumber),
 	replyBuffer: (Receiver -> Packet),
 	replies: (Sender -> Data)
 }
@@ -47,7 +47,7 @@ pred SendPacket[s,s':State]{
 		(s.buffer[send] = none) and
 		(one p:(Packet - s.sent) |
 			p in s'.sent and
-			p.seqNum = Chandan - send.(s.lastSentNum) and
+			p.seqNum = SequenceNumber - send.(s.lastSentNum) and
 			(one d:(Data - (ACK + NAK)) |
 				d = p.data and
 				(let sendPair = (send->p) |
@@ -66,7 +66,7 @@ pred SendPacket[s,s':State]{
 						s.replyBuffer = s'.replyBuffer and
 						s.lastReceivedNum = s'.lastReceivedNum and
 						s.sent = s'.sent - p and
-						s'.lastSentNum = (send->(Chandan - send.(s.lastSentNum))) and
+						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum))) and
 						s'.buffer = s.buffer + sendPair))))))
 }
 
@@ -128,7 +128,7 @@ pred State.Done[]{
 
 pred State.Init[]{
 	#this.receivers = 0 and #this.buffer = 0  and #this.replyBuffer = 0 and #this.lastSent = 0 and this.replies = {Sender->ACK}
-	and (all s:Sender | (s->ACK) !in this.senders and (s->NAK) !in this.senders and (s->ChandanWithHat) in this.lastSentNum)
+	and (all s:Sender | (s->ACK) !in this.senders and (s->NAK) !in this.senders and (s->Seq0) in this.lastSentNum)
 	and this.sent = none and #this.lastReceivedNum = 0
 }
 
