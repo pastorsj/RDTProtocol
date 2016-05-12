@@ -45,25 +45,19 @@ abstract sig StateType{}
 
 one sig SendState, ReceiveState, ReceiveReplyState, DeadState extends StateType{}
 
-
-
 pred SendPacket[s,s':State]{
 	s.type = SendState and
 	(one send:Sender |
 		(s.buffer[send] = none) and
 		(one p:(Packet - s.sent) |
-			p in s'.sent and
 			p.seqNum = SequenceNumber - send.(s.lastSentNum) and
-			(one d:(Data - (ACK + NAK)) |
+			(one d:(Data - ACK - NAK) |
 				d = p.data and
 				(let sendPair = (send->p) |
 					(let sendData = (send -> d) |
 						((((send->NAK) in s.replies)=> (sendData in s.lastSent)) and
 						(((send->ACK) in s.replies) => (sendData in s.senders)) and
 						#s.replyBuffer = 0 and
-						sendData !in s'.senders and
-						sendPair in s'.buffer and
-						sendData in s'.lastSent and
 						#s.buffer = 0 and
 						s'.senders = s.senders - sendData and
 						s.receivers = s'.receivers and
@@ -71,7 +65,7 @@ pred SendPacket[s,s':State]{
 						s.replies = s'.replies and
 						s.replyBuffer = s'.replyBuffer and
 						s.lastReceivedNum = s'.lastReceivedNum and
-						s.sent = s'.sent - p and
+						s'.sent = s.sent + p and
 						s'.lastSentNum = (send->(SequenceNumber - send.(s.lastSentNum)))  and
 						s'.buffer = s.buffer + sendPair))))))
 }
@@ -82,7 +76,7 @@ pred ReceivePacket[s,s':State]{
 		(one p:Packet |
 			(one d:(Data - (ACK + NAK)) |
 				(one r: Receiver|
-				d = p.data and
+					d = p.data and
 					(let sendPair = (send->p) |
 						(let receiveData = (r -> d) |
 							((#s.replyBuffer = 0) and (#s'.replyBuffer = 1) and
@@ -97,7 +91,7 @@ pred ReceivePacket[s,s':State]{
 							((!p.ErrorCheck[] or (p.seqNum = r.(s.lastReceivedNum))) => s.receivers = s'.receivers) and
 							receiveData !in s.receivers and
 							s.lastSent = s'.lastSent and
-							s'.receivers - receiveData = s.receivers and
+							s.receivers = s'.receivers - receiveData and
 							s.replies = s'.replies and
 							s.sent = s'.sent and
 							s.lastSentNum = s'.lastSentNum and
@@ -149,26 +143,38 @@ pred State.Done[]{
 }
 
 pred State.Init[]{
-	#this.receivers = 0 and #this.buffer = 0  and #this.replyBuffer = 0 and #this.lastSent = 0 and this.replies = {Sender->ACK}
-	and (all s:Sender | (s->ACK) !in this.senders and (s->NAK) !in this.senders and (s->Seq0) in this.lastSentNum)
-	and this.sent = none and #this.lastReceivedNum = 0 and #this.senders > 0  and this.type = SendState
+	#this.receivers = 0 and 
+	#this.buffer = 0  and 
+	#this.replyBuffer = 0 and 
+	#this.lastSent = 0 and 
+	#this.lastReceivedNum = 0 and 
+	#this.senders > 0  and 
+	this.replies = {Sender->ACK} and 
+	(all s:Sender | (s->ACK) !in this.senders and 
+	(s->NAK) !in this.senders and 
+	(s->Seq0) in this.lastSentNum) and 
+	(all d: Data - (ACK + NAK) | one s:Sender | s->d in this.senders) and
+	this.sent = none and 
+	this.type = SendState
 }
 
 pred Transition[s, s':State]{
 	(SendPacket[s, s'] or 
 	ReceivePacket[s, s'] or
-	ReceiveReply[s, s'] or
-	StayDead[s, s'])
+	ReceiveReply[s, s'] //or
+	//StayDead[s, s']
+)
 	
 }
 
 pred TypeTransition[s, s':State]{
-	(Transition[s, s'] =>
+	(Transition[s, s']) and
 	(s.type in ReceiveReplyState => s'.type in SendState) and
 	(s.type in ReceiveState => s'.type in ReceiveReplyState) and
-	(s.type in SendState => s'.type in ReceiveState) and
-	(s.type in DeadState => s'.type in DeadState)) and
-	(!Transition[s, s'] => (s'.type in DeadState))
+	(s.type in SendState => s'.type in ReceiveState)// and
+	//(s.type in DeadState => s'.type in DeadState)) and
+	//(!Transition[s, s'] => (s'.type in DeadState)
+	
 }
 
 fact{
